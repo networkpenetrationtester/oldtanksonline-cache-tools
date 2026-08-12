@@ -1,76 +1,205 @@
-const fs = require('fs');
-const rl = require('readline');
-const os = require('os');
-const path = require('path');
+import { existsSync, readdirSync, rmSync } from "node:fs";
+import { createInterface } from "node:readline";
+import { homedir, userInfo, platform } from "node:os";
+import { join } from "node:path";
+import { stdin, stdout } from "node:process";
 
-const HIST = [];
+const io = createInterface(stdin, stdout);
 const FILENAME_ERROR_LOG = false;
-const CACHE_REL_PATH = path.join('AppData', 'Roaming', 'OldTanksOnline.Client.Standalone', 'Local Store', 'cache');
-const CACHE_ABS_PATH = {
-    'win32': path.join(os.homedir(), CACHE_REL_PATH),
-    'linux': path.join(os.homedir(), '.wine', 'drive_c', 'users', os.userInfo().username, CACHE_REL_PATH)
-}[os.platform()] ?? '';
+const CACHE_REL_PATH = join(
+  "AppData",
+  "Roaming",
+  "OldTanksOnline.Client.Standalone",
+  "Local Store",
+  "cache",
+);
+const CACHE_ABS_PATH =
+  {
+    win32: join(homedir(), CACHE_REL_PATH),
+    linux: join(
+      homedir(),
+      ".wine",
+      "drive_c",
+      "users",
+      userInfo().username,
+      CACHE_REL_PATH,
+    ),
+  }[platform()] ?? "";
 
-console.log(CACHE_ABS_PATH);
+if (!CACHE_ABS_PATH) throw new Error("* Ts platform not supported vro 😭🙏");
 
-if (!CACHE_ABS_PATH) throw new Error('Ts not supported cuh 😭🙏')
-
-function logger(file) {
-    console.log('\x1b[32m', file.decoded, '->', file.encoded, '\x1b[0m');
+function IncorrectBase64Logger(filename) {
+  console.log("\x1b[35m", "NOT VALID BASE64:", filename, "\x1b[0m");
 }
 
-async function main() {
-    if (fs.existsSync(CACHE_ABS_PATH)) {
+function FoundLogger(file) {
+  console.log(
+    "\x1b[32m",
+    "FOUND:",
+    file.decoded,
+    "->",
+    file.encoded,
+    "\x1b[0m",
+  );
+}
 
-        const io = rl.createInterface(process.stdin, process.stdout);
-        io.setPrompt('Enter resource to search for: ');
+function WarningLogger(file) {
+  console.log(
+    "\x1b[33m",
+    "WARNING:",
+    file.decoded,
+    "->",
+    file.encoded,
+    "\x1b[0m",
+  );
+}
 
-        const FILES = fs.readdirSync(CACHE_ABS_PATH).map((filename, i) => {
-            try {
-                return {
-                    encoded: filename,
-                    decoded: atob(filename)
-                }
-            }
-            catch {
-                FILENAME_ERROR_LOG && console.error('\x1b[31m', 'Filename contains invalid base64: ', filename, '\x1b[0m');
-                return {
-                    encoded: '',
-                    decoded: ''
-                }
-            }
-        });
+function DeleteLogger(file) {
+  console.log(
+    "\x1b[31m",
+    "DELETED:",
+    file.decoded,
+    "->",
+    file.encoded,
+    "\x1b[0m",
+  );
+}
 
-        while (true) {
-            let query = await new Promise(resolve => {
-                io.addListener('line', (input) => {
-                    io.removeAllListeners();
-                    resolve(input)
-                });
-                io.prompt(true);
-            });
+function GetFileList() {
+  return readdirSync(CACHE_ABS_PATH).map((filename) => {
+    try {
+      return {
+        encoded: filename,
+        decoded: atob(filename),
+      };
+    } catch {
+      if (FILENAME_ERROR_LOG) {
+        IncorrectBase64Logger(filename);
+      }
 
-            if (!query) continue;
-            if (query == '!e') process.exit(0);
+      return {
+        encoded: filename,
+        decoded: "",
+      };
+    }
+  });
+}
 
-            if (HIST[query]) {
-                for (const file of HIST[query]) {
-                    logger(file);
-                }
-            } else {
-                HIST[query] ??= [];
-                for (const file of FILES) {
-                    if (file.decoded.match(query)) {
-                        HIST[query].push(file);
-                        logger(file);
-                    }
-                }
-            }
+async function AsyncPrompt(prompt) {
+  io.setPrompt(prompt);
+  io.prompt();
+
+  return await new Promise((resolve) => {
+    const listener = (input) => {
+      io.removeListener("line", listener);
+      resolve(input);
+    };
+
+    io.addListener("line", listener);
+  });
+}
+
+function Info() {
+  console.log();
+  console.log("Command List:");
+  console.log("search <resource name>");
+  console.log("delete <resource name>");
+  console.log("help");
+  console.log("clear");
+  console.log("exit");
+  console.log();
+}
+
+async function Main() {
+  if (existsSync(CACHE_ABS_PATH)) {
+    console.log(`* Type "help" to view commands.`);
+
+    while (true) {
+      const input = await AsyncPrompt("* Enter a command (and query): ");
+
+      const [command, query] = input.split(" ");
+
+      if (!command) {
+        console.log("* Command Missing");
+        continue;
+      }
+
+      switch (command) {
+        case "exit": {
+          process.exit(0);
         }
 
-    } else {
-        throw new Error('Game not found 💔🥀');
+        case "clear": {
+          console.clear();
+          io.prompt();
+          continue;
+        }
+
+        case "help": {
+          Info();
+          continue;
+        }
+
+        case "search": {
+          if (!query) continue;
+
+          const files = GetFileList();
+
+          for (const file of files) {
+            if (file.decoded.match(query)) {
+              FoundLogger(file);
+            }
+          }
+
+          console.log();
+
+          continue;
+        }
+
+        case "delete": {
+          if (!query) continue;
+
+          const files = GetFileList();
+
+          for (const file of files) {
+            if (file.decoded.match(query)) {
+              WarningLogger(file);
+            }
+          }
+
+          console.log();
+
+          loop: for (
+            let confirm = "";
+            ;
+            confirm = await AsyncPrompt("* Really Delete? [y/n]: ")
+          ) {
+            switch (confirm) {
+              case "y": {
+                for (const file of files) {
+                  if (file.decoded.match(query)) {
+                    // rmSync(file.encoded);
+                    DeleteLogger(file);
+                  }
+                }
+                break loop;
+              }
+              case "n": {
+                console.log("* Aborted.");
+                break loop;
+              }
+            }
+          }
+
+          console.log();
+
+          continue;
+        }
+      }
     }
+  } else {
+    throw new Error("* Sorry cuh, we get 0 game 💔🥀");
+  }
 }
 
-main();
+Main();
