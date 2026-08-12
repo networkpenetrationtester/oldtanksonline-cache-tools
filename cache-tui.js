@@ -6,6 +6,7 @@ import { stdin, stdout } from "node:process";
 
 const io = createInterface(stdin, stdout);
 const FILENAME_ERROR_LOG = false;
+
 const CACHE_REL_PATH = join(
   "AppData",
   "Roaming",
@@ -13,6 +14,7 @@ const CACHE_REL_PATH = join(
   "Local Store",
   "cache",
 );
+
 const CACHE_ABS_PATH =
   {
     win32: join(homedir(), CACHE_REL_PATH),
@@ -28,7 +30,7 @@ const CACHE_ABS_PATH =
 
 if (!CACHE_ABS_PATH) throw new Error("* Ts platform not supported vro 😭🙏");
 
-function IncorrectBase64Logger(filename) {
+function InvalidBase64Logger(filename) {
   console.log("\x1b[35m", "NOT VALID BASE64:", filename, "\x1b[0m");
 }
 
@@ -74,7 +76,7 @@ function GetFileList() {
       };
     } catch {
       if (FILENAME_ERROR_LOG) {
-        IncorrectBase64Logger(filename);
+        InvalidBase64Logger(filename);
       }
 
       return {
@@ -116,11 +118,10 @@ async function Main() {
 
     while (true) {
       const input = await AsyncPrompt("* Enter a command (and query): ");
-
       const [command, query] = input.split(" ");
 
       if (!command) {
-        console.log("* Command Missing");
+        console.log("* Command Missing.");
         continue;
       }
 
@@ -144,11 +145,18 @@ async function Main() {
           if (!query) continue;
 
           const files = GetFileList();
+          const files_matched = [];
 
           for (const file of files) {
             if (file.decoded.match(query)) {
               FoundLogger(file);
+              files_matched.push(file);
             }
+          }
+
+          if (files_matched.length === 0) {
+            console.log(`* No results for "${query}".`);
+            continue;
           }
 
           console.log();
@@ -160,11 +168,18 @@ async function Main() {
           if (!query) continue;
 
           const files = GetFileList();
+          const files_matched = [];
 
           for (const file of files) {
             if (file.decoded.match(query)) {
               WarningLogger(file);
+              files_matched.push(file);
             }
+          }
+
+          if (files_matched.length === 0) {
+            console.log(`* No results for "${query}".`);
+            continue;
           }
 
           console.log();
@@ -178,7 +193,7 @@ async function Main() {
               case "y": {
                 for (const file of files) {
                   if (file.decoded.match(query)) {
-                    // rmSync(file.encoded);
+                    rmSync(join(CACHE_ABS_PATH, file.encoded));
                     DeleteLogger(file);
                   }
                 }
@@ -194,6 +209,9 @@ async function Main() {
           console.log();
 
           continue;
+        }
+        default: {
+          console.log(`* "${command}" is not a valid command.`);
         }
       }
     }
